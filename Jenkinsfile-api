@@ -16,11 +16,15 @@ pipeline {
         sh '''
           set -e
           mkdir -p reports
-          # Jalankan koleksi Postman → hasilkan JUnit XML tunggal
+          npm i -g newman-reporter-junitfull || true
+
           newman run api/*.postman_collection.json \
             -e api/*.postman_environment.json \
-            --reporters cli,junit \
-            --reporter-junit-export reports/junit-api.xml
+            --reporters cli,junitfull \
+            --reporter-junitfull-export reports/junit-api.xml
+
+          echo '[DEBUG] Peek JUnit head:'
+          head -n 25 reports/junit-api.xml || true
         '''
       }
       post {
@@ -58,7 +62,7 @@ pipeline {
     HTTP_CODE=$(curl -sS -w "%{http_code}" -o reports/xray-import.json \
       -X POST "https://xray.cloud.getxray.app/api/v2/import/execution/junit" \
       -H "Authorization: Bearer ${XRAY_TOKEN}" \
-      -F "file=@reports/junit-api.xml")
+      -F "file=@reports/junit-api.xml;type=application/xml")
 
     echo "[DEBUG] HTTP_CODE=$HTTP_CODE"
     [ "$HTTP_CODE" = "200" ] || [ "$HTTP_CODE" = "201" ] || {
