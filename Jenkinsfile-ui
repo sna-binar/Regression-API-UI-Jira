@@ -67,9 +67,9 @@ pipeline {
             [ -n "${XRAY_TESTPLAN_KEY:-}" ] && QS="${QS}&testPlanKey=${XRAY_TESTPLAN_KEY}"
 
             # 4) Upload semua file cucumber report ke Xray
-            declare -a FILE_ARGS=()
+            CURL_ARGS=""
             for f in $FILES; do
-              FILE_ARGS+=(-F "file=@$f")
+              CURL_ARGS="$CURL_ARGS -F file=@$f"
             done
 
             HTTP_CODE=$(
@@ -77,7 +77,7 @@ pipeline {
                 -X POST "https://xray.cloud.getxray.app/api/v2/import/execution/junit?${QS}" \
                 -H "Authorization: Bearer ${XRAY_TOKEN}" \
                 -H "Content-Type: multipart/form-data" \
-                "${FILE_ARGS[@]}"
+                $CURL_ARGS
             )
 
             case "$HTTP_CODE" in
