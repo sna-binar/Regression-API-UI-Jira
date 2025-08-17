@@ -44,33 +44,34 @@ pipeline {
     echo "[DEBUG] List reports sebelum upload:"; ls -lh reports || true
     [ -s reports/junit-api.xml ] || { echo "ERROR: reports/junit-api.xml not found/empty"; exit 1; }
 
-    # 1) AUTH: kirim JSON lewat stdin (hindari file & masalah kutip)
+    # 1) AUTH (pakai stdin; header JSON benar)
     XRAY_TOKEN=$(
       printf '{"client_id":"%s","client_secret":"%s"}' "$XRAY_CLIENT_ID" "$XRAY_CLIENT_SECRET" |
       curl -fsS -X POST "https://xray.cloud.getxray.app/api/v2/authenticate" \
            -H "Content-Type: application/json" \
            --data @- | tr -d '"'
     )
-
     echo "[DEBUG] XRAY_TOKEN length: ${#XRAY_TOKEN}"
     [ -n "$XRAY_TOKEN" ] || { echo "ERROR: token kosong (cek Client ID/Secret)"; exit 1; }
 
-    # 2) info.json (JSON VALID)
-    printf '%s' "{
-      \"fields\": {
-        \"summary\": \"API Regression - Build ${BUILD_NUMBER}\",
-        \"description\": \"Build URL: ${BUILD_URL}\",
-        \"labels\": [\"api\",\"regression\"]
+    # 2) Tulis info.json (VALID JSON + benar2 ditulis ke file)
+    cat > reports/info.json <<EOF
+    {
+      "fields": {
+        "summary": "API Regression - Build ${BUILD_NUMBER}",
+        "description": "Build URL: ${BUILD_URL}",
+        "labels": ["api","regression"]
       },
-      \"testEnvironments\": [\"staging\",\"api\"],
-      \"testPlanKey\": \"${TEST_PLAN_KEY:-}\"
-    }" > reports/info.json
+      "testEnvironments": ["staging","api"],
+      "testPlanKey": "${TEST_PLAN_KEY:-}"
+    }
+    EOF
 
     # 3) IMPORT ke Xray
+    #    PENTING: JANGAN pakai -H "Content-Type: multipart/form-data" (biar curl set header+boundary sendiri)
     HTTP_CODE=$(curl -sS -w "%{http_code}" -o reports/xray-import.json \
       -X POST "https://xray.cloud.getxray.app/api/v2/import/execution/junit" \
       -H "Authorization: Bearer ${XRAY_TOKEN}" \
-      -H "Content-Type: multipart/form-data" \
       -F "file=@reports/junit-api.xml" \
       -F "info=@reports/info.json;type=application/json")
 
