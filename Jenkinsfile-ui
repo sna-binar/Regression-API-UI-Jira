@@ -1,0 +1,75 @@
+pipeline {
+  agent {
+    docker { image 'ci-agent' }
+  }
+  environment {
+    TEST_PLAN_KEY = 'QT2-2'
+  }
+  stages {
+    stage('Clone') {
+      steps {
+        checkout scm
+      }
+    }
+
+    stage('Run Maven Test') {
+      steps {
+        sh '''
+          set -e
+          mkdir -p reports
+          # Jalankan test UI automation (BDD / POM)
+          mvn -B clean test
+        '''
+      }
+      post {
+        always {
+          // tampilkan hasil di Jenkins UI
+          junit 'target/surefire-reports/*.xml'
+          archiveArtifacts artifacts: 'target/surefire-reports/**', fingerprint: true
+        }
+      }
+    }
+
+    stage('Publish Results to Xray') {
+      environment {
+        XRAY_CLIENT_ID     = credentials('xray-client-id')
+        XRAY_CLIENT_SECRET = credentials('xray-client-secret')
+      }
+      steps {
+        sh '''
+          set -e
+          # 1) Auth → dapatkan Bearer token Xray Cloud
+          XRAY_TOKEN=$(curl -s -X POST https://xray.cloud.getxray.app/api/v2/authenticate \
+            -H "Content-Type: application/json" \
+            -d "{\\"client_id\\": \\"$XRAY_CLIENT_ID\\", \\"client_secret\\": \\"$XRAY_CLIENT_SECRET\\"}" | tr -d '"')
+
+          # 2) Siapkan info Test Execution
+          cat > reports/info.json <<JSON
+          {
+            "fields": {
+              "summary": "UI Regression - Build ${BUILD_NUMBER}",
+              "description": "Build URL: ${BUILD_URL}",
+              "labels": ["ui","regression"]
+            },
+            "testPlanKey": "${TEST_PLAN_KEY}",
+            "testEnvironments": ["staging","ui"]
+          }
+          JSON
+
+          # 3) Import JUnit → buat Test Execution di Xray
+          curl -s -X POST "https://xray.cloud.getxray.app/api/v2/import/execution/junit" \
+            -H "Authorization: Bearer $XRAY_TOKEN" \
+            -H "Content-Type: multipart/form-data" \
+            -F "file=@target/surefire-reports/TEST-*.xml" \
+            -F "info=@reports/info.json;type=application/json" \
+            -o reports/xray-import.json
+
+          echo "Xray response:"; cat reports/xray-import.json
+        '''
+      }
+      post {
+        always { archiveArtifacts artifacts: 'reports/xray-import.json', fingerprint: true }
+      }
+    }
+  }
+}
