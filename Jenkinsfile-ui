@@ -46,38 +46,28 @@ pipeline {
             set -eu
             mkdir -p reports
 
-            # 1) Auth ke Xray
+            # Auth
             XRAY_TOKEN=$(
               printf '{"client_id":"%s","client_secret":"%s"}' "$XRAY_CLIENT_ID" "$XRAY_CLIENT_SECRET" |
               curl -fsS -X POST "https://xray.cloud.getxray.app/api/v2/authenticate" \
-                   -H "Content-Type: application/json" \
-                   --data @- | tr -d '"'
+                   -H "Content-Type: application/json" --data @- | tr -d '"'
             )
-            [ -n "$XRAY_TOKEN" ] || { echo "ERROR: gagal mendapatkan token Xray"; exit 1; }
+            [ -n "$XRAY_TOKEN" ] || { echo "ERROR: gagal dapat token"; exit 1; }
 
-            # 2) Cari file cucumber-reports/*.xml
-            FILES=$(ls target/cucumber-reports/*.xml 2>/dev/null || true)
-            [ -n "$FILES" ] || { echo "ERROR: Tidak ada file report di target/cucumber-reports"; exit 1; }
+            # Pastikan file ada
+            FILE="target/cucumber-reports/Cucumber.xml"
+            [ -s "$FILE" ] || { echo "ERROR: $FILE tidak ditemukan / kosong"; exit 1; }
 
-            echo "Menemukan file report:"
-            echo "$FILES" | sed 's/^/ - /'
-
-            # 3) Build query string dinamis
+            # QS dinamis
             QS="projectKey=${XRAY_PROJECT_KEY}"
             [ -n "${XRAY_TESTPLAN_KEY:-}" ] && QS="${QS}&testPlanKey=${XRAY_TESTPLAN_KEY}"
 
-            # 4) Upload semua file cucumber report ke Xray
-            CURL_ARGS=""
-            for f in $FILES; do
-              CURL_ARGS="$CURL_ARGS -F file=@$f"
-            done
-
+            # Upload: TIDAK pakai -H Content-Type saat -F
             HTTP_CODE=$(
               curl -sS -w "%{http_code}" -o reports/xray-import.json \
                 -X POST "https://xray.cloud.getxray.app/api/v2/import/execution/junit?${QS}" \
                 -H "Authorization: Bearer ${XRAY_TOKEN}" \
-                -H "Content-Type: multipart/form-data" \
-                $CURL_ARGS
+                -F "file=@${FILE}"
             )
 
             case "$HTTP_CODE" in
