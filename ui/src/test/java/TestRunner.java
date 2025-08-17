@@ -6,7 +6,7 @@ import io.cucumber.junit.CucumberOptions;
 @CucumberOptions(
     features = "src/test/resources",
     glue = "stepDefinitions",
-    plugin = {"pretty", "html:target/cucumber-report.html"}
+    plugin = {"pretty", "junit:target/cucumber-reports/Cucumber.xml", "html:target/cucumber-report.html"}
 )
 
 public class TestRunner {
