@@ -1,15 +1,19 @@
 pipeline {
-  agent {
-    docker { image 'ci-agent' }
+  agent { docker { image 'ci-agent' } }
+
+  parameters {
+    string(name: 'XRAY_PROJECT_KEY',  defaultValue: 'QT2',  description: 'Xray Project Key')
+    string(name: 'XRAY_TESTPLAN_KEY', defaultValue: '',     description: 'Opsional: Test Plan Key (kosongkan jika tidak dipakai)')
   }
+
   environment {
-    TEST_PLAN_KEY = 'QT2-2'
+    XRAY_CLIENT_ID     = credentials('xray-client-id')
+    XRAY_CLIENT_SECRET = credentials('xray-client-secret')
   }
+
   stages {
     stage('Clone') {
-      steps {
-        checkout scm
-      }
+      steps { checkout scm }
     }
 
     stage('Run Maven Test') {
@@ -17,13 +21,17 @@ pipeline {
         sh '''
           set -e
           mkdir -p reports
-          # Jalankan test UI automation (BDD / POM)
           mvn -B clean test
+
+          # pastikan minimal ada 1 file JUnit
+          ls target/surefire-reports/TEST-*.xml >/dev/null 2>&1 || {
+            echo "ERROR: Tidak ditemukan file JUnit di target/surefire-reports/TEST-*.xml"
+            exit 1
+          }
         '''
       }
       post {
         always {
-          // tampilkan hasil di Jenkins UI
           junit 'target/surefire-reports/*.xml'
           archiveArtifacts artifacts: 'target/surefire-reports/**', fingerprint: true
         }
@@ -31,44 +39,47 @@ pipeline {
     }
 
     stage('Publish Results to Xray') {
-      environment {
-        XRAY_CLIENT_ID     = credentials('xray-client-id')
-        XRAY_CLIENT_SECRET = credentials('xray-client-secret')
-      }
       steps {
         sh '''
-          set -e
-          # 1) Auth → dapatkan Bearer token Xray Cloud
-          XRAY_TOKEN=$(curl -s -X POST https://xray.cloud.getxray.app/api/v2/authenticate \
-            -H "Content-Type: application/json" \
-            -d "{\\"client_id\\": \\"$XRAY_CLIENT_ID\\", \\"client_secret\\": \\"$XRAY_CLIENT_SECRET\\"}" | tr -d '"')
+          set -eu
+          mkdir -p reports
 
-          # 2) Siapkan info Test Execution
-          cat > reports/info.json <<JSON
-          {
-            "fields": {
-              "summary": "UI Regression - Build ${BUILD_NUMBER}",
-              "description": "Build URL: ${BUILD_URL}",
-              "labels": ["ui","regression"]
-            },
-            "testPlanKey": "${TEST_PLAN_KEY}",
-            "testEnvironments": ["staging","ui"]
-          }
-          JSON
+          # Auth ke Xray
+          XRAY_TOKEN=$(
+            printf '{"client_id":"%s","client_secret":"%s"}' "$XRAY_CLIENT_ID" "$XRAY_CLIENT_SECRET" |
+            curl -fsS -X POST "https://xray.cloud.getxray.app/api/v2/authenticate" \
+                 -H "Content-Type: application/json" \
+                 --data @- | tr -d '"'
+          )
+          [ -n "$XRAY_TOKEN" ] || { echo "ERROR: gagal mendapatkan token Xray"; exit 1; }
 
-          # 3) Import JUnit → buat Test Execution di Xray
-          curl -s -X POST "https://xray.cloud.getxray.app/api/v2/import/execution/junit" \
-            -H "Authorization: Bearer $XRAY_TOKEN" \
-            -H "Content-Type: multipart/form-data" \
-            -F "file=@target/surefire-reports/TEST-*.xml" \
-            -F "info=@reports/info.json;type=application/json" \
-            -o reports/xray-import.json
+          # Query string dinamis (tanpa info.json)
+          QS="projectKey=${XRAY_PROJECT_KEY}"
+          [ -n "${XRAY_TESTPLAN_KEY:-}" ] && QS="${QS}&testPlanKey=${XRAY_TESTPLAN_KEY}"
 
-          echo "Xray response:"; cat reports/xray-import.json
+          # Import JUnit: multipart file saja (boleh banyak file)
+          HTTP_CODE=$(
+            curl -sS -w "%{http_code}" -o reports/xray-import.json \
+              -X POST "https://xray.cloud.getxray.app/api/v2/import/execution/junit?${QS}" \
+              -H "Authorization: Bearer $XRAY_TOKEN" \
+              -H "Content-Type: multipart/form-data" \
+              -F "file=@target/surefire-reports/TEST-*.xml"
+          )
+
+          case "$HTTP_CODE" in
+            200|201) : ;;  # OK/Created
+            *)  echo "ERROR: Xray import gagal (HTTP $HTTP_CODE)"
+                echo "--- Response ---"
+                cat reports/xray-import.json || true
+                exit 1
+                ;;
+          esac
         '''
       }
       post {
-        always { archiveArtifacts artifacts: 'reports/xray-import.json', fingerprint: true }
+        always {
+          archiveArtifacts artifacts: 'reports/xray-import.json', fingerprint: true
+        }
       }
     }
   }
