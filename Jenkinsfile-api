@@ -62,7 +62,8 @@ pipeline {
     HTTP_CODE=$(curl -sS -w "%{http_code}" -o reports/xray-import.json \
       -X POST "https://xray.cloud.getxray.app/api/v2/import/execution/junit?projectKey=QT2" \
       -H "Authorization: Bearer ${XRAY_TOKEN}" \
-      -F "file=@reports/junit-api.xml")
+      -H "Content-Type: text/xml" \
+      --data-binary @reports/junit-api.xml)
 
     echo "[DEBUG] HTTP_CODE=$HTTP_CODE"
     [ "$HTTP_CODE" = "200" ] || [ "$HTTP_CODE" = "201" ] || {
