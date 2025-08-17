@@ -41,29 +41,36 @@ pipeline {
     set -eu
     mkdir -p reports
 
-    echo "[DEBUG] Listing reports sebelum upload:"
-    ls -lh reports || true
+    echo "[DEBUG] List reports sebelum upload:"; ls -lh reports || true
     [ -s reports/junit-api.xml ] || { echo "ERROR: reports/junit-api.xml not found/empty"; exit 1; }
 
-    # 1) AUTH (HARUS pakai header & JSON valid)
+    # 1) Tulis AUTH payload ke file (JSON VALID)
+    cat > reports/auth.json <<EOF
+    {"client_id":"$XRAY_CLIENT_ID","client_secret":"$XRAY_CLIENT_SECRET"}
+    EOF
+
+    # 2) Minta token (pakai --data @file supaya tidak perlu escape kutip)
     XRAY_TOKEN=$(curl -fsS -X POST "https://xray.cloud.getxray.app/api/v2/authenticate" \
       -H "Content-Type: application/json" \
-      -d "{\"client_id\":\"$XRAY_CLIENT_ID\",\"client_secret\":\"$XRAY_CLIENT_SECRET\"}" | tr -d '"')
+      --data @reports/auth.json | tr -d '"')
 
-    # Optional debug: panjang token
     echo "[DEBUG] XRAY_TOKEN length: ${#XRAY_TOKEN}"
+    [ -n "$XRAY_TOKEN" ] || { echo "ERROR: token kosong (cek Client ID/Secret & payload JSON)"; exit 1; }
 
-    # 2) info.json (JSON VALID)
-    printf '%s' "{
-      \"fields\": {
-        \"summary\": \"API Regression - Build ${BUILD_NUMBER}\",
-        \"description\": \"Build URL: ${BUILD_URL}\",
-        \"labels\": [\"api\",\"regression\"]
+    # 3) Tulis info.json (JSON VALID)
+    cat > reports/info.json <<EOF
+    {
+      "fields": {
+        "summary": "API Regression - Build ${BUILD_NUMBER}",
+        "description": "Build URL: ${BUILD_URL}",
+        "labels": ["api","regression"]
       },
-      \"testEnvironments\": [\"staging\",\"api\"]
-    }" > reports/info.json
+      "testEnvironments": ["staging","api"],
+      "testPlanKey": "${TEST_PLAN_KEY:-}"
+    }
+    EOF
 
-    # 3) IMPORT ke Xray
+    # 4) Import ke Xray (simpan response)
     HTTP_CODE=$(curl -sS -w "%{http_code}" -o reports/xray-import.json \
       -X POST "https://xray.cloud.getxray.app/api/v2/import/execution/junit" \
       -H "Authorization: Bearer ${XRAY_TOKEN}" \
@@ -74,7 +81,7 @@ pipeline {
     echo "[DEBUG] HTTP_CODE=$HTTP_CODE"
     [ "$HTTP_CODE" = "200" ] || [ "$HTTP_CODE" = "201" ] || { echo "Upload failed with HTTP $HTTP_CODE"; echo "--- Response ---"; cat reports/xray-import.json || true; exit 1; }
 
-    echo "[DEBUG] Response tersimpan -> reports/xray-import.json"
+    echo "[DEBUG] Response -> reports/xray-import.json"
     head -c 1000 reports/xray-import.json || true
     '''
       }
