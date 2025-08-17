@@ -1,49 +1,84 @@
-stage('Publish Results to Xray') {
+pipeline {
+  agent {
+    docker { image 'ci-agent' }
+  }
   environment {
-    XRAY_CLIENT_ID     = credentials('xray-client-id')
-    XRAY_CLIENT_SECRET = credentials('xray-client-secret')
+    TEST_PLAN_KEY = 'QT2-2'
   }
-  steps {
-    sh '''
-      set -euo pipefail
-      mkdir -p reports
+  stages {
+    stage('Clone') {
+      steps {
+        checkout scm
+      }
+    }
+    stage('API (Newman)') {
+      steps {
+        sh '''
+          set -e
+          mkdir -p reports
+          # Jalankan koleksi Postman → hasilkan JUnit XML tunggal
+          newman run api/*.postman_collection.json \
+            -e api/*.postman_environment.json \
+            --reporters cli,junit \
+            --reporter-junit-export reports/junit-api.xml
+        '''
+      }
+      post {
+        always {
+          // tampilkan hasil di Jenkins UI
+          junit 'reports/*.xml'
+          archiveArtifacts artifacts: 'reports/**', fingerprint: true
+        }
+      }
+    }
+    stage('Publish Results to Xray') {
+      environment {
+        XRAY_CLIENT_ID     = credentials('xray-client-id')
+        XRAY_CLIENT_SECRET = credentials('xray-client-secret')
+      }
+      steps {
+        sh '''
+          set -euo pipefail
+          mkdir -p reports
 
-      echo "[DEBUG] Listing reports sebelum upload:"
-      ls -lh reports || true
-      test -s reports/junit-api.xml || { echo "ERROR: reports/junit-api.xml not found/empty"; exit 1; }
+          echo "[DEBUG] Listing reports sebelum upload:"
+          ls -lh reports || true
+          test -s reports/junit-api.xml || { echo "ERROR: reports/junit-api.xml not found/empty"; exit 1; }
 
-      XRAY_TOKEN=$(curl --fail-with-body -sS -X POST https://xray.cloud.getxray.app/api/v2/authenticate \
-        -H "Content-Type: application/json" \
-        -d "{\"client_id\":\"$XRAY_CLIENT_ID\",\"client_secret\":\"$XRAY_CLIENT_SECRET\"}" | tr -d '"')
+          XRAY_TOKEN=$(curl --fail-with-body -sS -X POST https://xray.cloud.getxray.app/api/v2/authenticate \
+            -H "Content-Type: application/json" \
+            -d "{\"client_id\":\"$XRAY_CLIENT_ID\",\"client_secret\":\"$XRAY_CLIENT_SECRET\"}" | tr -d '"')
 
-      printf '%s' "{
-        \"fields\": {
-          \"summary\": \"API Regression - Build ${BUILD_NUMBER}\",
-          \"description\": \"Build URL: ${BUILD_URL}\",
-          \"labels\": [\"api\",\"regression\"]
-        },
-        \"testEnvironments\": [\"staging\",\"api\"]
-      }" > reports/info.json
+          printf '%s' "{
+            \"fields\": {
+              \"summary\": \"API Regression - Build ${BUILD_NUMBER}\",
+              \"description\": \"Build URL: ${BUILD_URL}\",
+              \"labels\": [\"api\",\"regression\"]
+            },
+            \"testEnvironments\": [\"staging\",\"api\"]
+          }" > reports/info.json
 
-      # Upload + tampilkan HTTP code dan simpan response
-      HTTP_CODE=$(curl -sS -w "%{http_code}" --fail-with-body -o reports/xray-import.json \
-        -X POST "https://xray.cloud.getxray.app/api/v2/import/execution/junit" \
-        -H "Authorization: Bearer $XRAY_TOKEN" \
-        -H "Content-Type: multipart/form-data" \
-        -F "file=@reports/junit-api.xml" \
-        -F "info=@reports/info.json;type=application/json")
+          # Upload + tampilkan HTTP code dan simpan response
+          HTTP_CODE=$(curl -sS -w "%{http_code}" --fail-with-body -o reports/xray-import.json \
+            -X POST "https://xray.cloud.getxray.app/api/v2/import/execution/junit" \
+            -H "Authorization: Bearer $XRAY_TOKEN" \
+            -H "Content-Type: multipart/form-data" \
+            -F "file=@reports/junit-api.xml" \
+            -F "info=@reports/info.json;type=application/json")
 
-      echo "[DEBUG] HTTP_CODE=$HTTP_CODE"
-      test "$HTTP_CODE" = "200" -o "$HTTP_CODE" = "201" || { echo "Upload failed with HTTP $HTTP_CODE"; cat reports/xray-import.json || true; exit 1; }
+          echo "[DEBUG] HTTP_CODE=$HTTP_CODE"
+          test "$HTTP_CODE" = "200" -o "$HTTP_CODE" = "201" || { echo "Upload failed with HTTP $HTTP_CODE"; cat reports/xray-import.json || true; exit 1; }
 
-      echo "[DEBUG] Response tersimpan:"
-      head -c 1000 reports/xray-import.json || true
+          echo "[DEBUG] Response tersimpan:"
+          head -c 1000 reports/xray-import.json || true
 
-      # (opsional) tampilkan TE key jika jq ada
-      command -v jq >/dev/null && jq -r '.testExecIssue.key // empty' reports/xray-import.json || true
-    '''
-  }
-  post {
-    always { archiveArtifacts artifacts: 'reports/xray-import.json', fingerprint: true }
+          # (opsional) tampilkan TE key jika jq ada
+          command -v jq >/dev/null && jq -r '.testExecIssue.key // empty' reports/xray-import.json || true
+        '''
+      }
+      post {
+        always { archiveArtifacts artifacts: 'reports/xray-import.json', fingerprint: true }
+      }
+    }
   }
 }
