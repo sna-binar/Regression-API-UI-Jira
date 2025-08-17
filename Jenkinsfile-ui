@@ -46,7 +46,7 @@ pipeline {
             set -eu
             mkdir -p reports
 
-            # 1) Auth ke Xray
+            # Auth
             XRAY_TOKEN=$(
               printf '{"client_id":"%s","client_secret":"%s"}' "$XRAY_CLIENT_ID" "$XRAY_CLIENT_SECRET" |
               curl -fsS -X POST "https://xray.cloud.getxray.app/api/v2/authenticate" \
@@ -54,37 +54,35 @@ pipeline {
             )
             [ -n "$XRAY_TOKEN" ] || { echo "ERROR: gagal dapat token"; exit 1; }
 
-            # 2) Pastikan ada file JUnit
-            FILES=$(ls target/surefire-reports/TEST-*.xml 2>/dev/null || true)
-            [ -n "$FILES" ] || { echo "ERROR: Tidak ada JUnit report di target/surefire-reports"; exit 1; }
+            # File JUnit (Surefire)
+            FILE="target/surefire-reports/TEST-TestRunner.xml"
+            [ -s "$FILE" ] || { echo "ERROR: $FILE tidak ditemukan / kosong"; exit 1; }
+            grep -q "<testsuite" "$FILE" || { echo "ERROR: $FILE bukan JUnit XML"; exit 1; }
 
-            echo "Akan upload file JUnit:"
-            for f in $FILES; do echo " - $f"; done
+            # Sanity check ukuran
+            BYTES=$(wc -c < "$FILE" | tr -d ' ')
+            echo "Upload JUnit ($BYTES bytes): $FILE"
 
-            # 3) Build query string
+            # Query string
             QS="projectKey=${XRAY_PROJECT_KEY}"
             [ -n "${XRAY_TESTPLAN_KEY:-}" ] && QS="${QS}&testPlanKey=${XRAY_TESTPLAN_KEY}"
 
-            # 4) Susun argumen -F (tanpa array bash)
-            CURL_ARGS=""
-            for f in $FILES; do
-              CURL_ARGS="$CURL_ARGS -F file=@$f"
-            done
-
-            # 5) Upload
-            # shellcheck disable=SC2086
+            # Upload: single file, text/xml
             HTTP_CODE=$(
               curl -sS -w "%{http_code}" -o reports/xray-import.json \
                 -X POST "https://xray.cloud.getxray.app/api/v2/import/execution/junit?${QS}" \
                 -H "Authorization: Bearer ${XRAY_TOKEN}" \
-                $CURL_ARGS
+                -H "Content-Type: text/xml" \
+                --data-binary @"$FILE"
             )
 
             case "$HTTP_CODE" in
               200|201) : ;;
               *)  echo "ERROR: Xray import gagal (HTTP $HTTP_CODE)"
                   echo "--- Response ---"
-                  cat reports/xray-import.json || true
+                  head -n 80 reports/xray-import.json || true
+                  echo "--- Head of $FILE ---"
+                  head -n 40 "$FILE" || true
                   exit 1
                   ;;
             esac
@@ -92,9 +90,7 @@ pipeline {
         }
       }
       post {
-        always {
-          archiveArtifacts artifacts: 'ui/reports/xray-import.json', fingerprint: true
-        }
+        always { archiveArtifacts artifacts: 'ui/reports/xray-import.json', fingerprint: true }
       }
     }
   }
