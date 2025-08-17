@@ -44,33 +44,29 @@ pipeline {
     echo "[DEBUG] List reports sebelum upload:"; ls -lh reports || true
     [ -s reports/junit-api.xml ] || { echo "ERROR: reports/junit-api.xml not found/empty"; exit 1; }
 
-    # 1) Tulis AUTH payload ke file (JSON VALID)
-    cat > reports/auth.json <<EOF
-    {"client_id":"$XRAY_CLIENT_ID","client_secret":"$XRAY_CLIENT_SECRET"}
-    EOF
-
-    # 2) Minta token (pakai --data @file supaya tidak perlu escape kutip)
-    XRAY_TOKEN=$(curl -fsS -X POST "https://xray.cloud.getxray.app/api/v2/authenticate" \
-      -H "Content-Type: application/json" \
-      --data @reports/auth.json | tr -d '"')
+    # 1) AUTH: kirim JSON lewat stdin (hindari file & masalah kutip)
+    XRAY_TOKEN=$(
+      printf '{"client_id":"%s","client_secret":"%s"}' "$XRAY_CLIENT_ID" "$XRAY_CLIENT_SECRET" |
+      curl -fsS -X POST "https://xray.cloud.getxray.app/api/v2/authenticate" \
+           -H "Content-Type: application/json" \
+           --data @- | tr -d '"'
+    )
 
     echo "[DEBUG] XRAY_TOKEN length: ${#XRAY_TOKEN}"
-    [ -n "$XRAY_TOKEN" ] || { echo "ERROR: token kosong (cek Client ID/Secret & payload JSON)"; exit 1; }
+    [ -n "$XRAY_TOKEN" ] || { echo "ERROR: token kosong (cek Client ID/Secret)"; exit 1; }
 
-    # 3) Tulis info.json (JSON VALID)
-    cat > reports/info.json <<EOF
-    {
-      "fields": {
-        "summary": "API Regression - Build ${BUILD_NUMBER}",
-        "description": "Build URL: ${BUILD_URL}",
-        "labels": ["api","regression"]
+    # 2) info.json (JSON VALID)
+    printf '%s' "{
+      \"fields\": {
+        \"summary\": \"API Regression - Build ${BUILD_NUMBER}\",
+        \"description\": \"Build URL: ${BUILD_URL}\",
+        \"labels\": [\"api\",\"regression\"]
       },
-      "testEnvironments": ["staging","api"],
-      "testPlanKey": "${TEST_PLAN_KEY:-}"
-    }
-    EOF
+      \"testEnvironments\": [\"staging\",\"api\"],
+      \"testPlanKey\": \"${TEST_PLAN_KEY:-}\"
+    }" > reports/info.json
 
-    # 4) Import ke Xray (simpan response)
+    # 3) IMPORT ke Xray
     HTTP_CODE=$(curl -sS -w "%{http_code}" -o reports/xray-import.json \
       -X POST "https://xray.cloud.getxray.app/api/v2/import/execution/junit" \
       -H "Authorization: Bearer ${XRAY_TOKEN}" \
