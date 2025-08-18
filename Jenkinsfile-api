@@ -64,7 +64,8 @@ pipeline {
           [ -n "${XRAY_TESTPLAN_KEY:-}" ] && QS="${QS}&testPlanKey=${XRAY_TESTPLAN_KEY}"
 
           # === Tambahkan payload INFO untuk menamai Test Execution ===
-                INFO_JSON=$(cat <<'JSON'
+          INFO_JSON_FILE="reports/info.json"
+          cat > "$INFO_JSON_FILE" <<JSON
           {
             "fields": {
               "summary": "API Regression - Build ${BUILD_NUMBER}",
@@ -72,7 +73,6 @@ pipeline {
             }
           }
           JSON
-          )
 
           # Import JUnit ke Xray
             HTTP_CODE=$(
@@ -81,7 +81,7 @@ pipeline {
                 -H "Authorization: Bearer ${XRAY_TOKEN}" \
                 -H "Content-Type: multipart/form-data" \
                 -F "file=@reports/junit-api.xml" \
-                -F "info=@<(echo \\"$INFO_JSON\\");type=application/json"
+                -F "info=@${INFO_JSON_FILE};type=application/json"
             )
 
           case "$HTTP_CODE" in
