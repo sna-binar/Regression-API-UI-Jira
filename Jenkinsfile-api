@@ -25,12 +25,12 @@ pipeline {
           set -e
           rm -rf api/allure-results reports || true
           mkdir -p api/allure-results reports
-          npm i -g newman-reporter-junitfull newman-reporter-allure || true
+          npm i -g newman-reporter-junit newman-reporter-allure || true
 
           newman run api/*.postman_collection.json \
             -e api/*.postman_environment.json \
-            --reporters cli,junitfull,allure \
-            --reporter-junitfull-export reports/junit-api.xml \
+            --reporters cli,junit,allure \
+            --reporter-junit-export reports/junit-api.xml \
             --reporter-allure-resultsDir api/allure-results
         '''
       }
