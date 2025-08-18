@@ -63,12 +63,26 @@ pipeline {
           QS="projectKey=${XRAY_PROJECT_KEY}"
           [ -n "${XRAY_TESTPLAN_KEY:-}" ] && QS="${QS}&testPlanKey=${XRAY_TESTPLAN_KEY}"
 
+          # === Tambahkan payload INFO untuk menamai Test Execution ===
+                INFO_JSON=$(cat <<'JSON'
+          {
+            "fields": {
+              "summary": "API Regression - Build ${BUILD_NUMBER}",
+              "description": "Build URL: ${BUILD_URL}\\nJob: ${JOB_NAME}"
+            }
+          }
+          JSON
+          )
+
           # Import JUnit ke Xray
-          HTTP_CODE=$(curl -sS -w "%{http_code}" -o reports/xray-import.json \
-            -X POST "https://xray.cloud.getxray.app/api/v2/import/execution/junit?${QS}" \
-            -H "Authorization: Bearer ${XRAY_TOKEN}" \
-            -H "Content-Type: text/xml" \
-            --data-binary @reports/junit-api.xml)
+            HTTP_CODE=$(
+              curl -sS -w "%{http_code}" -o reports/xray-import.json \
+                -X POST "https://xray.cloud.getxray.app/api/v2/import/execution/junit?${QS}" \
+                -H "Authorization: Bearer ${XRAY_TOKEN}" \
+                -H "Content-Type: multipart/form-data" \
+                -F "file=@reports/junit-api.xml" \
+                -F "info=@<(echo \\"$INFO_JSON\\");type=application/json"
+            )
 
           case "$HTTP_CODE" in
             200|201) : ;;  # OK/Created
