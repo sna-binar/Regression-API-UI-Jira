@@ -31,7 +31,7 @@ pipeline {
             -e api/*.postman_environment.json \
             --reporters cli,junitfull,allure \
             --reporter-junitfull-export reports/junit-api.xml \
-            --reporter-allure-resultsDir allure-results
+            --reporter-allure-resultsDir api/allure-results
         '''
       }
       post {
