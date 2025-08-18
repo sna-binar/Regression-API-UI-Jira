@@ -21,6 +21,7 @@ pipeline {
         dir('ui') {
           sh '''
             set -e
+            rm -rf ui/allure-results reports || true
             mkdir -p reports
             mvn -B clean test
 
@@ -87,6 +88,13 @@ pipeline {
       }
       post {
         always { archiveArtifacts artifacts: 'ui/reports/xray-import.json', fingerprint: true }
+      }
+    }
+    stage('Allure Report') {
+      steps {
+        allure([
+          results: [[path: 'ui/allure-results']]
+        ])
       }
     }
   }

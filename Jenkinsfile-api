@@ -23,13 +23,15 @@ pipeline {
       steps {
         sh '''
           set -e
-          mkdir -p reports
-          npm i -g newman-reporter-junitfull || true
+          rm -rf api/allure-results reports || true
+          mkdir -p api/allure-results reports
+          npm i -g newman-reporter-junitfull newman-reporter-allure || true
 
           newman run api/*.postman_collection.json \
             -e api/*.postman_environment.json \
-            --reporters cli,junitfull \
-            --reporter-junitfull-export reports/junit-api.xml
+            --reporters cli,junitfull,allure \
+            --reporter-junitfull-export reports/junit-api.xml \
+            --reporter-allure-resultsDir allure-results
         '''
       }
       post {
@@ -82,6 +84,13 @@ pipeline {
         always {
           archiveArtifacts artifacts: 'reports/xray-import.json', fingerprint: true
         }
+      }
+    }
+    stage('Allure Report') {
+      steps {
+        allure([
+          results: [[path: 'api/allure-results']]
+        ])
       }
     }
   }

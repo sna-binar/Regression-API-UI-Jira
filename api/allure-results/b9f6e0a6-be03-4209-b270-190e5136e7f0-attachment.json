@@ -1,0 +1,10 @@
+{
+    "x-api-key": "reqres-free-v1",
+    "User-Agent": "PostmanRuntime/7.39.1",
+    "Accept": "*/*",
+    "Cache-Control": "no-cache",
+    "Postman-Token": "6950263f-dcf9-49c8-9a62-aea8bcdffb02",
+    "Host": "reqres.in",
+    "Accept-Encoding": "gzip, deflate, br",
+    "Connection": "keep-alive"
+}

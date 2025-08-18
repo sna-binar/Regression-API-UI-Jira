@@ -6,7 +6,11 @@ import io.cucumber.junit.CucumberOptions;
 @CucumberOptions(
     features = "src/test/resources",
     glue = "stepDefinitions",
-    plugin = {"pretty", "html:target/cucumber-report.html"}
+    plugin = {
+            "pretty",
+            "html:target/cucumber-report.html",
+            "io.qameta.allure.cucumber7jvm.AllureCucumber7Jvm"
+    }
 )
 
 public class TestRunner {

@@ -1,0 +1,11 @@
+pm.test("Status code is 201", function () {
+    pm.response.to.have.status(201);
+});
+pm.test("Response time is less than 2000ms", function () {
+    pm.expect(pm.response.responseTime).to.be.below(2000);
+});
+pm.test("Check JSON value", function () {
+    var jsonData = pm.response.json();
+    pm.expect(jsonData.name).to.eql("morpheus");
+    pm.expect(jsonData.job).to.eql("leader");
+});
